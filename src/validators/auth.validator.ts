@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const signupSchema = z.object({
+export const registerSchema = z.object({
   body: z.object({
     name: z.string().min(2).max(99),
     email: z.string().email().max(99),
@@ -10,8 +10,9 @@ export const signupSchema = z.object({
       .max(100)
       .regex(
         /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/,
-        "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character"
+        "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character",
       ),
+    companyName: z.string().min(2),
   }),
 });
 
@@ -57,7 +58,7 @@ export const resetPasswordSchema = z.object({
       .max(100)
       .regex(
         /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/,
-        "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character"
+        "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character",
       ),
   }),
 });

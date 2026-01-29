@@ -2,7 +2,15 @@ import { Router } from "express";
 import { AuthController } from "@/controllers/auth.controller";
 import { AuthService } from "@/services/auth.service";
 import { validateRequest } from "@/middleware/validateRequest";
-import { loginSchema, signupSchema, verifyEmailSchema, resendVerificationSchema, forgotPasswordSchema, resetPasswordSchema } from "@/validators/auth.validator";
+import {
+  loginSchema,
+  registerSchema,
+  refreshTokenSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "@/validators/auth.validator";
 import { requireAuth } from "@/middleware/authMiddleware";
 import { verificationLimiter } from "@/middleware/rateLimiter";
 
@@ -22,9 +30,9 @@ const authController = new AuthController(authService);
 
 /**
  * @swagger
- * /auth/signup:
+ * /auth/register:
  *   post:
- *     summary: Register a new user
+ *     summary: Register company and owner
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -36,6 +44,7 @@ const authController = new AuthController(authService);
  *               - email
  *               - name
  *               - password
+ *               - companyName
  *             properties:
  *               email:
  *                 type: string
@@ -47,15 +56,22 @@ const authController = new AuthController(authService);
  *                 type: string
  *                 format: password
  *                 minLength: 8
+ *               companyName:
+ *                 type: string
+ *                 minLength: 2
  *     responses:
  *       201:
- *         description: User created successfully
+ *         description: Company and owner registered successfully
  *       400:
  *         description: Invalid input
  *       409:
  *         description: Email already exists
  */
-router.post("/signup", validateRequest(signupSchema), authController.signup);
+router.post(
+  "/register",
+  validateRequest(registerSchema),
+  authController.register,
+);
 
 /**
  * @swagger
@@ -119,13 +135,33 @@ router.post("/login", validateRequest(loginSchema), authController.login);
  *       401:
  *         description: Invalid refresh token
  */
-router.post("/refresh", authController.refresh);
+router.post(
+  "/refresh",
+  validateRequest(refreshTokenSchema),
+  authController.refresh,
+);
+
+/**
+ * @swagger
+ * /auth/me:
+ *   get:
+ *     summary: Get current user info
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current user details
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ */
+router.get("/me", requireAuth, authController.me);
 
 /**
  * @swagger
  * /auth/logout:
  *   post:
- *     summary: Logout user
+ *     summary: Logout user (clear refresh token)
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -158,37 +194,10 @@ router.post("/logout", requireAuth, authController.logout);
  *       404:
  *         description: Token not found
  */
-router.get("/verify-email/:token", validateRequest(verifyEmailSchema), authController.verifyEmail);
-
-/**
- * @swagger
- * /auth/send-email-verification:
- *   post:
- *     summary: Resend verification email
- *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *     responses:
- *       200:
- *         description: Verification email sent
- *       429:
- *         description: Too many requests
- */
-router.post(
-  "/send-email-verification",
-  verificationLimiter,
-  validateRequest(resendVerificationSchema),
-  authController.resendVerification
+router.get(
+  "/verify-email/:token",
+  validateRequest(verifyEmailSchema),
+  authController.verifyEmail,
 );
 
 /**
@@ -213,7 +222,11 @@ router.post(
  *       200:
  *         description: Reset email sent if email exists
  */
-router.post("/forgot-password", validateRequest(forgotPasswordSchema), authController.forgotPassword);
+router.post(
+  "/forgot-password",
+  validateRequest(forgotPasswordSchema),
+  authController.forgotPassword,
+);
 
 /**
  * @swagger
@@ -249,6 +262,10 @@ router.post("/forgot-password", validateRequest(forgotPasswordSchema), authContr
  *       404:
  *         description: Token not found
  */
-router.post("/reset-password/:token", validateRequest(resetPasswordSchema), authController.resetPassword);
+router.post(
+  "/reset-password/:token",
+  validateRequest(resetPasswordSchema),
+  authController.resetPassword,
+);
 
 export default router;

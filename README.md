@@ -14,7 +14,7 @@ This project is about understanding **real-world backend architecture**:
 
 - **TypeScript** - Strongly typed language for better developer experience
 - **Authentication & Authorization** - JWT-based auth with refresh tokens
-- **Database Integration** - Prisma ORM with MySQL
+- **Database Integration** - Prisma ORM with PostgreSQL
 - **API Documentation** - REST client files for API testing
 - **Security**
   - Helmet for security headers

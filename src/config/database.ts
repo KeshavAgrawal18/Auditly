@@ -6,7 +6,7 @@ const prisma = new PrismaClient({
   log: ENV.NODE_ENV === "development" ? ["query", "error", "warn"] : [],
   datasources: {
     db: {
-      url: ENV.MYSQL_DATABASE_URL,
+      url: ENV.DATABASE_URL,
     },
   },
 });
