@@ -17,12 +17,18 @@ const userController = new UserController(userService);
  * @swagger
  * tags:
  *   name: Users
- *   description: User management endpoints
+ *   description: User management (multitenant, company-scoped)
  */
 
 /**
  * @swagger
  * components:
+ *   securitySchemes:
+ *     bearerAuth:
+ *       type: http
+ *       scheme: bearer
+ *       bearerFormat: JWT
+ *
  *   schemas:
  *     User:
  *       type: object
@@ -37,23 +43,60 @@ const userController = new UserController(userService);
  *           format: email
  *         role:
  *           type: string
- *           enum: [ADMIN, USER]
+ *           enum: [OWNER, ADMIN, USER]
  *         createdAt:
  *           type: string
  *           format: date-time
  *         updatedAt:
  *           type: string
  *           format: date-time
+ *
+ *     CreateUser:
+ *       type: object
+ *       required:
+ *         - name
+ *         - email
+ *         - password
+ *       properties:
+ *         name:
+ *           type: string
+ *           minLength: 2
+ *         email:
+ *           type: string
+ *           format: email
+ *         password:
+ *           type: string
+ *           format: password
+ *           minLength: 8
+ *         role:
+ *           type: string
+ *           enum: [ADMIN, USER]
+ *
+ *     UpdateUser:
+ *       type: object
+ *       properties:
+ *         name:
+ *           type: string
+ *           minLength: 2
+ *         email:
+ *           type: string
+ *           format: email
+ *         role:
+ *           type: string
+ *           enum: [ADMIN, USER]
  */
 
-// Protected routes - all routes require authentication
+/**
+ * All routes below require authentication
+ */
 router.use(requireAuth);
 
 /**
  * @swagger
  * /users:
  *   get:
- *     summary: Get all users (Admin only)
+ *     summary: Get all users in current company
+ *     description: Returns all users belonging to the authenticated user's company.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -69,13 +112,13 @@ router.use(requireAuth);
  *       401:
  *         description: Unauthorized
  *       403:
- *         description: Forbidden - Admin only
+ *         description: Forbidden (ADMIN / OWNER only)
  */
 router.get(
   "/",
-  requireRole(["ADMIN"]),
-  cache({ duration: 300 }), // Cache for 5 minutes
-  userController.getAll
+  requireRole(["ADMIN", "OWNER"]),
+  cache({ duration: 300 }),
+  userController.getAll,
 );
 
 /**
@@ -83,6 +126,9 @@ router.get(
  * /users/{id}:
  *   get:
  *     summary: Get user by ID
+ *     description: |
+ *       - USER can access **their own profile**
+ *       - ADMIN / OWNER can access users within the same company
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -100,20 +146,19 @@ router.get(
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/User'
+ *       403:
+ *         description: Forbidden
  *       404:
  *         description: User not found
  */
-router.get(
-  "/:id",
-  cache({ duration: 60 }), // Cache for 1 minute
-  userController.getUser
-);
+router.get("/:id", cache({ duration: 300 }), userController.getUser);
 
 /**
  * @swagger
  * /users:
  *   post:
- *     summary: Create new user (Admin only)
+ *     summary: Create a new user
+ *     description: Creates a user inside the authenticated user's company.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -122,45 +167,30 @@ router.get(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required:
- *               - name
- *               - email
- *               - password
- *             properties:
- *               name:
- *                 type: string
- *                 minLength: 2
- *               email:
- *                 type: string
- *                 format: email
- *               password:
- *                 type: string
- *                 format: password
- *                 minLength: 8
- *               role:
- *                 type: string
- *                 enum: [ADMIN, USER]
+ *             $ref: '#/components/schemas/CreateUser'
  *     responses:
  *       201:
- *         description: User created
+ *         description: User created successfully
  *       400:
- *         description: Invalid input
+ *         description: Validation error
  *       403:
- *         description: Forbidden - Admin only
+ *         description: Forbidden (ADMIN / OWNER only)
  */
 router.post(
   "/",
-  requireRole(["ADMIN"]),
+  requireRole(["ADMIN", "OWNER"]),
   validateRequest(createUserSchema),
-  userController.create
+  userController.create,
 );
 
 /**
  * @swagger
  * /users/{id}:
  *   patch:
- *     summary: Update user (Admin only)
+ *     summary: Update a user
+ *     description: |
+ *       - USER can update **their own profile**
+ *       - ADMIN / OWNER can update users in the same company
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -176,39 +206,30 @@ router.post(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *                 minLength: 2
- *               email:
- *                 type: string
- *                 format: email
- *               role:
- *                 type: string
- *                 enum: [ADMIN, USER]
+ *             $ref: '#/components/schemas/UpdateUser'
  *     responses:
  *       200:
- *         description: User updated
+ *         description: User updated successfully
  *       400:
- *         description: Invalid input
+ *         description: Validation error
  *       403:
- *         description: Forbidden - Admin only
+ *         description: Forbidden
  *       404:
  *         description: User not found
  */
 router.patch(
   "/:id",
-  requireRole(["ADMIN"]),
+  requireRole(["ADMIN", "OWNER"]),
   validateRequest(updateUserSchema),
-  userController.update
+  userController.update,
 );
 
 /**
  * @swagger
  * /users/{id}:
  *   delete:
- *     summary: Delete user (Admin only)
+ *     summary: Delete a user
+ *     description: Only OWNER can delete users in their company.
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -220,13 +241,13 @@ router.patch(
  *           type: string
  *           format: uuid
  *     responses:
- *       200:
- *         description: User deleted
+ *       204:
+ *         description: User deleted successfully
  *       403:
- *         description: Forbidden - Admin only
+ *         description: Forbidden (OWNER only)
  *       404:
  *         description: User not found
  */
-router.delete("/:id", requireRole(["ADMIN"]), userController.delete);
+router.delete("/:id", requireRole(["OWNER"]), userController.delete);
 
 export default router;
