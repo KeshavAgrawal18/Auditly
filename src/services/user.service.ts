@@ -1,9 +1,16 @@
 import { PrismaClient } from "@prisma/client";
 import { AppError } from "@/utils/appError";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import { EmailService } from "./email.service";
+import { UserRole } from "@/middleware/authMiddleware";
+import { ErrorCode } from "@/utils/errorCodes";
 
 const prisma = new PrismaClient();
 
 export class UserService {
+  private emailService = new EmailService();
+
   async getAllUsers(companyId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
@@ -76,23 +83,54 @@ export class UserService {
     }
   }
 
-  async createUser(data: {
+  async createUser(params: {
     name: string;
     email: string;
     password: string;
-    role?: "ADMIN" | "USER";
+    role: UserRole;
     companyId: string;
   }) {
-    return prisma.user.create({
-      data,
+    const { name, email, password, role, companyId } = params;
+
+    const exists = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (exists) {
+      throw new AppError("Email already exists", 409, ErrorCode.ALREADY_EXISTS);
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const verifyToken = crypto.randomBytes(32).toString("hex");
+
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role,
+        companyId,
+        emailVerified: null,
+        emailVerificationToken: verifyToken,
+        emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
       select: {
         id: true,
         name: true,
         email: true,
         role: true,
+        companyId: true,
         createdAt: true,
-        updatedAt: true,
       },
     });
+
+    await this.emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      verifyToken,
+    );
+
+    return user;
   }
 }
