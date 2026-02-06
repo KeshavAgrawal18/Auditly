@@ -5,18 +5,28 @@ services:
     ports:
       - "4300:4300"
     environment:
-      - NODE_ENV=production
-      - PORT=4300
-      - MYSQL_DATABASE_URL=mysql://express-boilerplate:express-boilerplate@db:3306/express-boilerplate
-      - JWT_SECRET=${JWT_SECRET}
-      - REFRESH_TOKEN_SECRET=${REFRESH_TOKEN_SECRET}
-      - FRONTEND_URL=${FRONTEND_URL}
+      NODE_ENV: production
+      PORT: 4300
+      DATABASE_URL: postgresql://auditly_user:auditly_password@db:5432/auditly
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL}
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
+    command: >
+      sh -c "npx prisma migrate deploy && node dist/src/index.js"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4300/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:4300/health"
+        ]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -36,10 +46,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: "1"
           memory: 1G
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 512M
     logging:
       driver: "json-file"
@@ -48,33 +58,22 @@ services:
         max-file: "3"
 
   db:
-    image: mysql:8.0
+    image: postgres:16
     env_file: .env
-    ports:
-      - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-express-boilerplate}
-      MYSQL_USER: ${MYSQL_USER:-express-boilerplate}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-express-boilerplate}
+      POSTGRES_USER: auditly_user
+      POSTGRES_PASSWORD: auditly_password
+      POSTGRES_DB: auditly
     volumes:
-      - mysql_data:/var/lib/mysql:delegated
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U auditly_user -d auditly"]
       interval: 10s
       timeout: 5s
       retries: 5
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-      - DAC_OVERRIDE
-      - NET_BIND_SERVICE
-    security_opt:
-      - seccomp=unconfined
-    user: mysql
+    restart: unless-stopped
+    networks:
+      - app-network
 
   prometheus:
     image: prom/prometheus:latest
@@ -94,10 +93,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=grafana-clock-panel
-      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=grafana-simple-json-datasource
-      - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=1s
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: grafana-simple-json-datasource
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 1s
     volumes:
       - grafana_data:/var/lib/grafana
       - ./data/grafana/provisioning:/etc/grafana/provisioning
@@ -108,7 +107,11 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://localhost:3000/api/health || exit 1"
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -123,10 +126,10 @@ services:
       - /sys:/host/sys:ro
       - /:/rootfs:ro
     command:
-      - '--path.procfs=/host/proc'
-      - '--path.rootfs=/rootfs'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
     networks:
       - app-network
 
@@ -137,23 +140,23 @@ services:
     volumes:
       - ./data/alertmanager:/etc/alertmanager
     command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
     networks:
       - app-network
     restart: unless-stopped
 
 volumes:
+  postgres_data:
+    driver: local
+  grafana_data:
+    driver: local
   api_logs:
     driver: local
     driver_opts:
       type: none
       o: bind
       device: ./logs
-  mysql_data:
-    driver: local
-  grafana_data:
-    driver: local
 
 networks:
   app-network:
