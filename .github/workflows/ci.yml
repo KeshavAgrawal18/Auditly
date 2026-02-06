@@ -88,4 +88,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: your-username/auditly:latest
+          tags: keshavagrawal18/auditly:latest
