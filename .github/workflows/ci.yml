@@ -11,38 +11,61 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      mysql:
-        image: mysql:8.0
+      postgres:
+        image: postgres:16
         env:
-          MYSQL_ROOT_PASSWORD: rootpassword
-          MYSQL_DATABASE: express-boilerplate
+          POSTGRES_USER: auditly_user
+          POSTGRES_PASSWORD: auditly_password
+          POSTGRES_DB: auditly
         ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U auditly_user -d auditly"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "22"
+          node-version: "20"
           cache: "npm"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Prepare env file
+        run: cp .env.example .env
+
+      - name: Wait for Postgres to be ready
         run: |
-          cp .env.example .env
-          npm run test
+          until pg_isready -h localhost -p 5432 -U auditly_user; do
+            echo "Waiting for Postgres..."
+            sleep 2
+          done
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
         env:
-          MYSQL_DATABASE_URL: mysql://root@localhost:3306/express-boilerplate
+          DATABASE_URL: postgresql://auditly_user:auditly_password@localhost:5432/auditly
+
+      - name: Run Prisma migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://auditly_user:auditly_password@localhost:5432/auditly
+
+      - name: Run tests
+        run: npm run test
+        env:
           NODE_ENV: test
-          JWT_SECRET: test-jwt-secret
-          REFRESH_TOKEN_SECRET: test-refresh-token-secret
-          JWT_EXPIRY: 15m
-          REFRESH_TOKEN_EXPIRY: 7d
+          PORT: 4300
+          DATABASE_URL: postgresql://auditly_user:auditly_password@localhost:5432/auditly
+          JWT_SECRET: randomlygeneratedjwtsecretthatshouldbeover32chars
+          REFRESH_TOKEN_SECRET: anotherrandomlygeneratedrefreshtokensecretover32chars
           FRONTEND_URL: http://localhost:3000
 
   build:
@@ -51,7 +74,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Login to Docker Hub
         uses: docker/login-action@v2
@@ -62,5 +86,6 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
+          context: .
           push: true
-          tags: your-username/express-boilerplate:latest
+          tags: keshavagrawal18/auditly:latest
