@@ -107,6 +107,8 @@ export class AuthService {
       to: email,
       name,
       verificationToken: verifyToken,
+      userId: user.id,
+      companyId: company.id,
     });
 
     const accessToken = this.generateAccessToken(user);
@@ -292,6 +294,8 @@ export class AuthService {
       to: user.email,
       name: user.name,
       resetToken: token,
+      userId: user.id,
+      companyId: user.companyId,
     });
   }
 

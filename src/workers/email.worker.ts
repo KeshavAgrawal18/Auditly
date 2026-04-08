@@ -1,11 +1,13 @@
 import { Worker, Job } from "bullmq";
 import { redisConnection } from "../config/redis";
 import { EmailService } from "../services/email.service";
+import { AuditService } from "../services/audit.service";
 
-// Create an instance of EmailService
+// services
 const emailService = new EmailService();
+const auditService = new AuditService();
 
-// Create worker
+// worker
 const worker = new Worker(
   "emailQueue",
   async (job: Job) => {
@@ -28,10 +30,36 @@ const worker = new Worker(
         console.warn(`Unknown job type: ${job.name}`);
       }
 
+      // log success when job finishes successfully
+      await auditService.createLog({
+        action: "EMAIL_SENT",
+        userId: job.data.userId,
+        companyId: job.data.companyId,
+        metadata: {
+          to: job.data.to,
+          type: job.name,
+        },
+      });
+
       console.log(`Finished job ${job.id}`);
     } catch (error) {
       console.error(`Job failed ${job.id}`, error);
-      throw error; // for retries
+
+      // log only final failure
+      if (job.attemptsMade + 1 === job.opts.attempts) {
+        await auditService.createLog({
+          action: "EMAIL_FAILED",
+          userId: job.data.userId,
+          companyId: job.data.companyId,
+          metadata: {
+            to: job.data.to,
+            type: job.name,
+            error: (error as Error).message,
+          },
+        });
+      }
+
+      throw error; // REQUIRED for retry
     }
   },
   {
@@ -40,7 +68,7 @@ const worker = new Worker(
   },
 );
 
-// lifecycle logs
+// lifecycle logs (keep for dev/debug)
 worker.on("completed", (job) => {
   console.log(`Job ${job.id} completed`);
 });
