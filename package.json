@@ -8,6 +8,8 @@
     "dev": "npx nodemon",
     "dev:clean": "rimraf dist && tsx watch src/index.ts",
     "build": "prisma generate && tsc -p . && tsc-alias",
+    "worker": "ts-node src/workers/email.worker.ts",
+    "worker:dev": "tsx watch src/worker/email.worker.ts",
     "docker:dev": "docker compose -f docker-compose.dev.yml up",
     "docker:dev:build": "docker compose -f docker-compose.dev.yml up --build",
     "docker:dev:down": "docker compose -f docker-compose.dev.yml down -v",

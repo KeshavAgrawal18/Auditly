@@ -5,17 +5,15 @@ import { ENV } from "@/config/env";
 import { AppError } from "@/utils/appError";
 import { ErrorCode } from "@/utils/errorCodes";
 import crypto from "crypto";
-import { EmailService } from "./email.service";
+import { addEmailJob } from "@/queues/email.queue";
 import { AuditService } from "./audit.service";
 
 const prisma = new PrismaClient();
 
 export class AuthService {
-  private emailService: EmailService;
   private auditService: AuditService;
 
   constructor() {
-    this.emailService = new EmailService();
     this.auditService = new AuditService();
   }
 
@@ -72,27 +70,31 @@ export class AuthService {
     const hashed = await bcrypt.hash(password, 10);
     const verifyToken = this.generateToken();
 
-    const company = await prisma.company.create({
-      data: { name: companyName },
-    });
+    const { user, company } = await prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: { name: companyName },
+      });
 
-    const user = await prisma.user.create({
-      data: {
-        email,
-        name,
-        password: hashed,
-        role: "OWNER",
-        companyId: company.id,
-        emailVerificationToken: verifyToken,
-        emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        companyId: true,
-      },
+      const user = await tx.user.create({
+        data: {
+          email,
+          name,
+          password: hashed,
+          role: "OWNER",
+          companyId: company.id,
+          emailVerificationToken: verifyToken,
+          emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          companyId: true,
+        },
+      });
+
+      return { user, company };
     });
 
     await this.auditService.createLog({
@@ -101,7 +103,11 @@ export class AuthService {
       companyId: company.id,
     });
 
-    await this.emailService.sendVerificationEmail(email, name, verifyToken);
+    await addEmailJob("verification", {
+      to: email,
+      name,
+      verificationToken: verifyToken,
+    });
 
     const accessToken = this.generateAccessToken(user);
     const refreshToken = this.generateRefreshToken(user);
@@ -282,11 +288,11 @@ export class AuthService {
       companyId: user.companyId,
     });
 
-    await this.emailService.sendPasswordResetEmail(
-      user.email,
-      user.name,
-      token,
-    );
+    await addEmailJob("reset", {
+      to: user.email,
+      name: user.name,
+      resetToken: token,
+    });
   }
 
   async resetPassword(token: string, password: string) {
