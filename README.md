@@ -1,7 +1,8 @@
 # Auditly
 
 ## TL;DR
-Auditly is a **production-grade TypeScript backend** designed for **multi-tenant applications**, focusing on **secure, scalable architecture**, and providing features like **JWT authentication**, **RBAC**, and **audit logging**.
+
+Auditly is a **production-grade TypeScript backend** for **multi-tenant systems**, built with **JWT-based RBAC, audit logging for traceability, and async background processing (BullMQ + Redis)** to ensure performance and reliability.
 
 > Focused on ownership-based RBAC, strict multi-tenancy, and auditability — not CRUD demos.
 
@@ -30,32 +31,33 @@ This repository is intended to be read like a **system design walkthrough**, not
 - [About the Author](#about-the-author)
 - [License](#license)
 
-
 ## Key Features
 
-- **Multi-tenant aware API** with strict tenant isolation  
-- **JWT-based authentication** with role-based access control (RBAC)  
-- **Comprehensive audit logging** and request tracing for accountability  
+- **Multi-tenant aware API** with strict tenant isolation
+- **JWT-based authentication** with role-based access control (RBAC)
+- **Comprehensive audit logging** and request tracing for accountability
 - **Production-style project structure** built for maintainability and scale
+- **Asynchronous email processing** using background jobs (BullMQ + Redis)
 
 ## Why Auditly Exists
 
 Many backend tutorials focus only on basic CRUD operations, skipping real-world system design.  
 Production backends require more than just functional endpoints:
 
-- **Tenant isolation** to prevent data leaks  
-- **Full traceability** to track actions and events  
+- **Tenant isolation** to prevent data leaks
+- **Full traceability** to track actions and events
 - **Predictable request flow** for debugging, scaling, and audits
 
 **Auditly** explores how production systems are **built for long-term maintainability**, emphasizing **structure, safety**, and **avoidance of shortcuts**.
 
 ### Core Principles
 
-- **Clear separation of concerns** across layers  
-- **Security-first** defaults for safer systems  
+- **Clear separation of concerns** across layers
+- **Security-first** defaults for safer systems
 - **Observability from day one** (not after the fact)
 
 ## What This Project Demonstrates
+
 - Ownership-based RBAC tied to company lifecycle
 - Tenant isolation enforced at auth, service, and data layers
 - Service-level audit logging for full traceability
@@ -76,7 +78,6 @@ Production backends require more than just functional endpoints:
 
 - **Audit logs as a first-class feature**  
   Service-level logging for traceability, debugging, and accountability.
-
 
 ## Architecture Overview
 
@@ -104,6 +105,12 @@ graph LR
     Prisma --> PostgreSQL
 ```
 
+### Extended Architecture (Async Processing)
+
+With the introduction of background job processing, email delivery is decoupled from the request lifecycle to reduce latency and handle failures more reliably using retries. This is implemented using a Redis-backed queue with BullMQ.
+
+![Async Architecture](./docs/architecture.png)
+
 ## Design Goals & Non-Goals
 
 ### Design Goals
@@ -116,7 +123,7 @@ graph LR
 ### Non-Goals
 
 - Not a framework or abstraction layer
-- Not optimized for rapid MVP delivery 
+- Not optimized for rapid MVP delivery
 - Not a feature-complete SaaS
 - Frontend concerns are intentionally excluded
 
@@ -143,13 +150,14 @@ Each layer has a **single, clear purpose** no overlap, no hidden logic.
 
 ## Why This Structure
 
-- **Testable** — business logic is isolated from HTTP and persistence  
-- **Predictable** — every request follows a single, explicit path  
-- **Scalable** — complexity grows without collapsing boundaries  
+- **Testable** — business logic is isolated from HTTP and persistence
+- **Predictable** — every request follows a single, explicit path
+- **Scalable** — complexity grows without collapsing boundaries
 
 This architecture favors **clarity and operational discipline** over convenience.
 
 ## Multi-Tenant & Security Model
+
 Built for **strict company isolation** with clear, enforceable authorization rules.
 
 ---
@@ -157,6 +165,7 @@ Built for **strict company isolation** with clear, enforceable authorization rul
 ### 🏷 Company Identification
 
 - **Company derived from JWT**
+
   - `companyId` is embedded in the JWT at login
   - Never accepted from request body, params, or headers
 
@@ -170,10 +179,12 @@ Built for **strict company isolation** with clear, enforceable authorization rul
 ## Isolation Enforcement
 
 - **Authorization middleware**
+
   - Validates JWT
   - Extracts `companyId` and role
 
 - **Service-layer guards**
+
   - Services require `companyId` explicitly
   - Business rules enforced close to domain logic
 
@@ -210,7 +221,6 @@ Built for **strict company isolation** with clear, enforceable authorization rul
 **Result:**  
 A clean, defense-in-depth multi-company security model that’s easy to reason about and hard to break.
 
-
 ## Authentication & Authorization
 
 Built for **clear flows, security, and auditability**, not framework tricks.
@@ -219,31 +229,31 @@ Built for **clear flows, security, and auditability**, not framework tricks.
 
 ### 🔐 JWT & Refresh Tokens
 
-- Short-lived **access tokens**, long-lived **refresh tokens**  
-- Refresh token issues new access token on expiry  
+- Short-lived **access tokens**, long-lived **refresh tokens**
+- Refresh token issues new access token on expiry
 - Expiry enforced server-side
 
 ---
 
 ### 🔁 Token Lifecycle
 
-- Issued at login after credential verification  
-- Rotated on refresh to reduce reuse risk  
+- Issued at login after credential verification
+- Rotated on refresh to reduce reuse risk
 - Revoked on logout or suspicious activity
 
 ---
 
 ### 🔑 Passwords
 
-- **Never stored in plain text**, hashed securely  
+- **Never stored in plain text**, hashed securely
 - Comparison only against hashed values
 
 ---
 
 ### ✉️ Email Verification
 
-- Accounts start unverified  
-- One-time, time-bound verification token  
+- Accounts start unverified
+- One-time, time-bound verification token
 - Required before sensitive actions
 
 ---
@@ -251,8 +261,8 @@ Built for **clear flows, security, and auditability**, not framework tricks.
 ### 🧭 Role-Based Access Control
 
 - Roles in JWT (`OWNER`, `ADMIN`, `USER`)
-- Enforced via middleware & service guards  
-- Routes declare required roles explicitly  
+- Enforced via middleware & service guards
+- Routes declare required roles explicitly
 - Centralized, predictable authorization
 
 ---
@@ -288,6 +298,32 @@ A **secure, auditable auth system** that’s easy to reason about and ready for 
 
 ---
 
+## Async Email Processing
+
+Email delivery is handled outside the request lifecycle using a background job queue.
+
+### Flow
+
+Client  
+→ API (auth flow)  
+→ Database write  
+→ Email job added to queue  
+→ Worker processes job  
+→ Email sent  
+→ Outcome logged
+
+### Why This Approach
+
+- **Non-blocking API** — request is not delayed by external email service
+- **Improved reliability** — failed jobs are retried automatically
+- **Separation of concerns** — background tasks decoupled from request handling
+
+### Tradeoffs
+
+- Email delivery is not guaranteed at request time
+- Failures may occur after response is sent
+- Mitigated using retry mechanisms in the worker
+
 **Result:**  
 A production-aware request flow that’s easy to trace, hard to abuse, and simple to maintain.
 
@@ -308,29 +344,33 @@ Metrics (Prometheus/Grafana) exist only as **scaffolding** and are not wired yet
 
 ## Technology Choices & Rationale
 
-| Technology | Why |
-|----------|-----|
-| **TypeScript** | Compile-time safety, fewer runtime bugs |
-| **Express** | Explicit control over request flow |
-| **Prisma** | Typed schema, safe queries, migrations |
-| **Zod** | Runtime validation at system boundaries |
-| **PostgreSQL** | Strong relational integrity |
-| **Docker** | Reproducible dev and CI environments |
-| **Jest** | Confidence through fast, focused tests |
-| **GitHub Actions** | Automated checks on every change |
+| Technology         | Why                                               |
+| ------------------ | ------------------------------------------------- |
+| **TypeScript**     | Compile-time safety, fewer runtime bugs           |
+| **Express**        | Explicit control over request flow                |
+| **Prisma**         | Typed schema, safe queries, migrations            |
+| **Zod**            | Runtime validation at system boundaries           |
+| **PostgreSQL**     | Strong relational integrity                       |
+| **Docker**         | Reproducible dev and CI environments              |
+| **Jest**           | Confidence through fast, focused tests            |
+| **GitHub Actions** | Automated checks on every change                  |
+| **BullMQ + Redis** | Background job processing and async task handling |
 
 Built for clarity, safety, and long-term maintainability, no magic, no lock-in.
 
 ## Testing Strategy
 
 - **E2E-first approach**
+
   - Covers auth flows, RBAC, company isolation, and middleware behavior
 
 - **Realistic execution**
+
   - Tests run against an isolated test database
   - Simulate real client requests, not mocked internals
 
 - **Cross-layer validation**
+
   - Verifies correctness across auth → service → database
   - Catches integration bugs early
 
@@ -396,14 +436,13 @@ npm run dev
 │   ├── services/        # Business logic
 │   ├── utils/           # Utility functions
 │   ├── validators/      # Request validation schemas
+│   ├── workers/         # Background workers (async job processing)
 │   ├── app.ts          # Express app setup
 │   └── index.ts        # Application entry point
 ├── prisma/             # Prisma schema and migrations
 ├── requests/           # REST client files
 └── docker/            # Docker configuration files
 ```
-
-
 
 ## Live Demo & API Docs
 
@@ -415,12 +454,11 @@ Explore Auditly in action with a live deployment and interactive API documentati
 - **Swagger API Docs:**  
   https://auditly-backend-production.up.railway.app/api-docs
 
-- **Optional Test Credentials:**  
-  - Email: demo@auditly.dev  
+- **Optional Test Credentials:**
+  - Email: demo@auditly.dev
   - Password: Demo@123
 
 **Purpose:** instant credibility and hands-on access to evaluate the architecture, security flows, and API design.
-
 
 ---
 
@@ -434,14 +472,12 @@ Explore Auditly in action with a live deployment and interactive API documentati
 
 ## CI/CD & Automation
 
-- **GitHub Actions on PRs** — automatic checks on every change  
-- **Test pipeline** — install → migrate → test  
-- **Docker builds** — clean, production-like validation  
+- **GitHub Actions on PRs** — automatic checks on every change
+- **Test pipeline** — install → migrate → test
+- **Docker builds** — clean, production-like validation
 - **Fail fast** — catch breakages before merge
 
 Built to protect `main` without slowing development.
-
-
 
 ## Roadmap
 
@@ -457,9 +493,9 @@ Focused on real scaling needs, not premature complexity.
 
 ## Who This Project Is For
 
-- **Backend engineers** — looking for clean, production-grade patterns  
-- **System design learners** — wanting to see theory applied in code  
-- **Interview preparation** — real talking points, not toy examples  
+- **Backend engineers** — looking for clean, production-grade patterns
+- **System design learners** — wanting to see theory applied in code
+- **Interview preparation** — real talking points, not toy examples
 - **Reference architecture** — a practical baseline for future projects
 
 Built to learn from, talk about, and build on.
@@ -469,13 +505,12 @@ Built to learn from, talk about, and build on.
 **Keshav Agrawal**  
 Full Stack Developer (Backend-focused)
 
-- **GitHub:** https://github.com/keshavagrawal18  
-- **LinkedIn:** https://www.linkedin.com/in/keshav-agrawal-ka  
+- **GitHub:** https://github.com/keshavagrawal18
+- **LinkedIn:** https://www.linkedin.com/in/keshav-agrawal-ka
 
-I build production-oriented backend systems with a strong focus on **architecture, security, and real-world engineering trade-offs**.  
+I build production-oriented backend systems with a strong focus on **architecture, security, and real-world engineering trade-offs**.
 
 Auditly reflects how I think about designing scalable APIs, enforcing clear access boundaries, and treating **observability as a first-class concern**, not an afterthought.
-
 
 ## License
 
